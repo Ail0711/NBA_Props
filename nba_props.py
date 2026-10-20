@@ -27,28 +27,38 @@ mapa_stats = {
 }
 columna_stat = mapa_stats[stat_objetivo]
 
-# --- FUNCIÓN PARA OBTENER DATOS ---
+# --- FUNCIÓN PARA OBTENER DATOS CON MANEJO DE TIMEOUT ---
 @st.cache_data(ttl=3600)
 def cargar_datos_jugador(nombre):
     jugadores = players.find_players_by_full_name(nombre)
     if not jugadores:
         return None, None
     
-    jugador_id = jugadores[0]['id']
+    jugador_id = jugadares_id = jugadores[0]['id']
     nombre_completo = jugadores[0]['full_name']
     
-    # Obtener el registro de partidos de la temporada actual
-    gamelog = playergamelog.PlayerGameLog(player_id=jugador_id, season='2025-26')
-    df = gamelog.get_data_frames()[0]
-    return nombre_completo, df
+    try:
+        # Aumentamos el timeout a 30 segundos para evitar que falle por lentitud de la API
+        gamelog = playergamelog.PlayerGameLog(
+            player_id=jugador_id, 
+            season='2025-26', 
+            timeout=30
+        )
+        df = gamelog.get_data_frames()[0]
+        return nombre_completo, df
+    except Exception as e:
+        # Si ocurre un timeout o error de conexión, devolvemos None
+        return nombre_completo, None
 
 # --- PROCESAMIENTO Y VISTA PRINCIPAL ---
 if st.sidebar.button("Analizar Jugador"):
-    with st.spinner(f"Buscando estadísticas para {nombre_jugador}..."):
+    with st.spinner(f"Conectando con la API de la NBA para {nombre_jugador}... (Esto puede tomar unos segundos)"):
         nombre_oficial, df = cargar_datos_jugador(nombre_jugador)
         
-        if df is None or df.empty:
-            st.error(f"No se encontraron datos para '{nombre_jugador}'. Revisa que esté bien escrito (ej. LeBron James, Cade Cunningham).")
+        if df is None:
+            st.error(f"⚠️ La API de la NBA tardó demasiado en responder o bloqueó la petición temporalmente. Inténtalo de nuevo en unos momentos.")
+        elif df.empty:
+            st.warning(f"No se encontraron registros de partidos para '{nombre_oficial}' en esta temporada.")
         else:
             # Ventanas de análisis
             df_l5 = df.head(5)
@@ -71,21 +81,18 @@ if st.sidebar.button("Analizar Jugador"):
             
             st.divider()
             
-            # --- GRÁFICA DE BARRAS (Estilo App de Apuestas) ---
+            # --- GRÁFICA DE BARRAS ---
             st.markdown(f"### Comportamiento en los últimos 10 partidos (Línea: {linea_prop})")
             
-            # Preparamos los datos para la gráfica de Streamlit
             df_grafica = df_l10[['GAME_DATE', 'MATCHUP', columna_stat]].copy()
             df_grafica = df_grafica.rename(columns={columna_stat: 'Valor', 'GAME_DATE': 'Fecha', 'MATCHUP': 'Enfrentamiento'})
             df_grafica = df_grafica.set_index('Fecha')
             
-            # Mostramos gráfico de barras interactivo
             st.bar_chart(df_grafica['Valor'])
             
             # --- TABLA DE DETALLE ---
             st.markdown("### Detalle Partido a Partido (L10)")
             
-            # Añadimos columna visual de si cumplió o no
             df_detalle = df_l10[['GAME_DATE', 'MATCHUP', columna_stat]].copy()
             df_detalle['Superó Línea'] = df_detalle[columna_stat].apply(lambda x: "✅ Sí" if x > linea_prop else "❌ No")
             df_detalle = df_detalle.rename(columns={'GAME_DATE': 'Fecha', 'MATCHUP': 'Enfrentamiento', columna_stat: stat_objetivo.capitalize()})
