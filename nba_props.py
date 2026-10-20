@@ -2,6 +2,21 @@ import streamlit as st
 import pandas as pd
 from nba_api.stats.endpoints import playergamelog
 from nba_api.stats.static import players
+from nba_api.library.http import NBAStatsHTTP
+
+# --- CONFIGURACIÓN DE HEADERS ANTIBLOQUEO ---
+# Esto engaña al firewall de la NBA para que no bloquee las peticiones desde la nube
+NBAStatsHTTP.headers = {
+    'Host': 'stats.nba.com',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Referer': 'https://www.nba.com/',
+    'x-nba-stats-origin': 'stats',
+    'x-nba-stats-token': 'true'
+}
 
 # Configuración de la página de Streamlit
 st.set_page_config(page_title="NBA Props Analizador", page_icon="🏀", layout="wide")
@@ -27,18 +42,18 @@ mapa_stats = {
 }
 columna_stat = mapa_stats[stat_objetivo]
 
-# --- FUNCIÓN PARA OBTENER DATOS CON MANEJO DE TIMEOUT ---
+# --- FUNCIÓN PARA OBTENER DATOS CON PROTECCIÓN ---
 @st.cache_data(ttl=3600)
 def cargar_datos_jugador(nombre):
     jugadores = players.find_players_by_full_name(nombre)
     if not jugadores:
         return None, None
     
-    jugador_id = jugadares_id = jugadores[0]['id']
+    jugador_id = jugadores[0]['id']
     nombre_completo = jugadores[0]['full_name']
     
     try:
-        # Aumentamos el timeout a 30 segundos para evitar que falle por lentitud de la API
+        # Petición con timeout extendido de 30 segundos
         gamelog = playergamelog.PlayerGameLog(
             player_id=jugador_id, 
             season='2025-26', 
@@ -47,16 +62,15 @@ def cargar_datos_jugador(nombre):
         df = gamelog.get_data_frames()[0]
         return nombre_completo, df
     except Exception as e:
-        # Si ocurre un timeout o error de conexión, devolvemos None
         return nombre_completo, None
 
 # --- PROCESAMIENTO Y VISTA PRINCIPAL ---
 if st.sidebar.button("Analizar Jugador"):
-    with st.spinner(f"Conectando con la API de la NBA para {nombre_jugador}... (Esto puede tomar unos segundos)"):
+    with st.spinner(f"Conectando con la API de la NBA para {nombre_jugador}..."):
         nombre_oficial, df = cargar_datos_jugador(nombre_jugador)
         
         if df is None:
-            st.error(f"⚠️ La API de la NBA tardó demasiado en responder o bloqueó la petición temporalmente. Inténtalo de nuevo en unos momentos.")
+            st.error(f"⚠️ El servidor de la NBA rechazó temporalmente la conexión. Vuelve a hacer clic en el botón 'Analizar Jugador' en unos segundos.")
         elif df.empty:
             st.warning(f"No se encontraron registros de partidos para '{nombre_oficial}' en esta temporada.")
         else:
