@@ -87,8 +87,8 @@ if st.sidebar.button("Analizar Jugador"):
             # --- TABLA DE DETALLE ---
             st.markdown("### Detalle Partido a Partido (L10)")
             
-            df_detalle = df_l10[['GAME_DATE', 'MATCHUP', columna_stat']].copy()
-            df_detalle['Superó Línea'] = df_detalle[columna_stat].apply(lambda x: "✅ Sí" if x > linea_prop else "❌ No")
+            df_detalle = df_l10[['GAME_DATE', 'MATCHUP', columna_stat]].copy()
+            df_detalle['Superó Línea'] = df_detalle[columna_stat].apply(lambda x: "Sí" if x > linea_prop else "No")
             df_detalle = df_detalle.rename(columns={'GAME_DATE': 'Fecha', 'MATCHUP': 'Enfrentamiento', columna_stat: stat_objetivo.capitalize()})
             
             st.dataframe(df_detalle, use_container_width=True)
