@@ -1,78 +1,93 @@
+import streamlit as st
 import pandas as pd
 from nba_api.stats.endpoints import playergamelog
 from nba_api.stats.static import players
 
-def analizar_prop_jugador(nombre_jugador, stat_objetivo, linea_prop):
-    print(f"\nBuscando estadísticas para: {nombre_jugador}...")
+# Configuración de la página de Streamlit
+st.set_page_config(page_title="NBA Props Analizador", page_icon="🏀", layout="wide")
+
+st.title("🏀 Analizador de Props NBA (Uso Personal)")
+st.markdown("Filtra y analiza el rendimiento reciente de los jugadores frente a líneas específicas.")
+
+# --- BARRA LATERAL (CONTROLES) ---
+st.sidebar.header("Parámetros de Búsqueda")
+nombre_jugador = st.sidebar.text_input("Nombre del Jugador", value="Cade Cunningham")
+stat_objetivo = st.sidebar.selectbox(
+    "Estadística a Analizar",
+    options=["triples", "puntos", "asistencias", "rebotes"]
+)
+linea_prop = st.sidebar.number_input("Línea del Prop", value=1.5, step=0.5)
+
+# Mapeo para la API de la NBA
+mapa_stats = {
+    'triples': 'FG3M',
+    'puntos': 'PTS',
+    'asistencias': 'AST',
+    'rebotes': 'REB'
+}
+columna_stat = mapa_stats[stat_objetivo]
+
+# --- FUNCIÓN PARA OBTENER DATOS ---
+@st.cache_data(ttl=3600)
+def cargar_datos_jugador(nombre):
+    jugadores = players.find_players_by_full_name(nombre)
+    if not jugadores:
+        return None, None
     
-    # 1. Encontrar el ID del jugador por su nombre
-    jugadores_encontrados = players.find_players_by_full_name(nombre_jugador)
-    if not jugadores_encontrados:
-        print("Jugador no encontrado. Verifica el nombre.")
-        return
+    jugador_id = jugadores[0]['id']
+    nombre_completo = jugadores[0]['full_name']
     
-    jugador_id = jugadores_encontrados[0]['id']
-    
-    # 2. Obtener el registro de partidos de la temporada actual (2025-26 o 2026-27 según corresponda)
-    # Usamos la temporada 2025-26 como referencia estándar
+    # Obtener el registro de partidos de la temporada actual
     gamelog = playergamelog.PlayerGameLog(player_id=jugador_id, season='2025-26')
     df = gamelog.get_data_frames()[0]
-    
-    if df.empty:
-        print("No se encontraron registros de partidos para este jugador.")
-        return
+    return nombre_completo, df
 
-    # Mapeo de estadísticas en el DataFrame de la NBA API
-    # 3PM = Triples anotados, PTS = Puntos, AST = Asistencias, REB = Rebotes
-    mapa_stats = {
-        'triples': 'FG3M',
-        'puntos': 'PTS',
-        'asistencias': 'AST',
-        'rebotes': 'REB'
-    }
-    
-    columna_stat = mapa_stats.get(stat_objetivo.lower())
-    if not columna_stat:
-        print("Estadística no válida. Usa: 'triples', 'puntos', 'asistencias' o 'rebotes'.")
-        return
-
-    # 3. Analizar últimas ventanas (L5, L10, L20)
-    df_l5 = df.head(5)
-    df_l10 = df.head(10)
-    df_l20 = df.head(20)
-
-    promedio_l5 = df_l5[columna_stat].mean()
-    promedio_l10 = df_l10[columna_stat].mean()
-    
-    # Calcular aciertos (Hit Rate) sobre la línea propuesta
-    aciertos_l5 = (df_l5[columna_stat] > linea_prop).sum()
-    aciertos_l10 = (df_l10[columna_stat] > linea_prop).sum()
-    
-    # 4. Mostrar Resultados en pantalla
-    print("=" * 50)
-    print(f" REPORTE DE PROPS: {nombre_jugador.upper()}")
-    print(f" Prop analizado: Más de {linea_prop} {stat_objetivo}")
-    print("=" * 50)
-    print(f" Proyección (Promedio L10): {promedio_l10:.2f}")
-    print(f" Proyección (Promedio L5):  {promedio_l5:.2f}")
-    print(f" Aciertos en últimos 5 partidos (L5):   {aciertos_l5} de 5 ({(aciertos_l5/5)*100:.0f}%)")
-    print(f" Aciertos en últimos 10 partidos (L10): {aciertos_l10} de 10 ({(aciertos_l10/10)*100:.0f}%)")
-    print("=" * 50)
-    
-    # Mostrar detalle de los últimos partidos
-    print("\n Detalle de los últimos 5 partidos:")
-    for index, row in df_l5.iterrows():
-        fecha = row['GAME_DATE']
-        matchup = row['MATCHUP']
-        valor_obtenido = row[columna_stat]
-        cumplio = "✅ ACERTÓ"_si_cumplio = "Sí" if valor_obtenido > linea_prop else "No"
-        print(f"   [{fecha}] {matchup} -> {stat_objetivo.capitalize()}: {valor_obtenido} (Línea: {linea_prop}) -> Superó la línea: {_si_cumplio}")
-
-# Ejemplo de prueba para ejecutar el script:
-if __name__ == "__main__":
-    # Puedes cambiar los valores para probar con cualquier jugador y prop
-    analizar_prop_jugador(
-        nombre_jugador="Cade Cunningham", 
-        stat_objetivo="triples", 
-        linea_prop=1.5
-    )
+# --- PROCESAMIENTO Y VISTA PRINCIPAL ---
+if st.sidebar.button("Analizar Jugador"):
+    with st.spinner(f"Buscando estadísticas para {nombre_jugador}..."):
+        nombre_oficial, df = cargar_datos_jugador(nombre_jugador)
+        
+        if df is None or df.empty:
+            st.error(f"No se encontraron datos para '{nombre_jugador}'. Revisa que esté bien escrito (ej. LeBron James, Cade Cunningham).")
+        else:
+            # Ventanas de análisis
+            df_l5 = df.head(5)
+            df_l10 = df.head(10)
+            
+            promedio_l5 = df_l5[columna_stat].mean()
+            promedio_l10 = df_l10[columna_stat].mean()
+            
+            aciertos_l5 = (df_l5[columna_stat] > linea_prop).sum()
+            aciertos_l10 = (df_l10[columna_stat] > linea_prop).sum()
+            
+            # --- MÉTRICAS SUPERIORES ---
+            st.subheader(f"Resultados para: {nombre_oficial}")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric(label="Proyección (Prom. L10)", value=f"{promedio_l10:.2f}")
+            col2.metric(label="Promedio L5", value=f"{promedio_l5:.2f}")
+            col3.metric(label="Aciertos (L10)", value=f"{aciertos_l10} / 10", delta=f"{(aciertos_l10/10)*100:.0f}%")
+            col4.metric(label="Aciertos (L5)", value=f"{aciertos_l5} / 5", delta=f"{(aciertos_l5/5)*100:.0f}%")
+            
+            st.divider()
+            
+            # --- GRÁFICA DE BARRAS (Estilo App de Apuestas) ---
+            st.markdown(f"### Comportamiento en los últimos 10 partidos (Línea: {linea_prop})")
+            
+            # Preparamos los datos para la gráfica de Streamlit
+            df_grafica = df_l10[['GAME_DATE', 'MATCHUP', columna_stat]].copy()
+            df_grafica = df_grafica.rename(columns={columna_stat: 'Valor', 'GAME_DATE': 'Fecha', 'MATCHUP': 'Enfrentamiento'})
+            df_grafica = df_grafica.set_index('Fecha')
+            
+            # Mostramos gráfico de barras interactivo
+            st.bar_chart(df_grafica['Valor'])
+            
+            # --- TABLA DE DETALLE ---
+            st.markdown("### Detalle Partido a Partido (L10)")
+            
+            # Añadimos columna visual de si cumplió o no
+            df_detalle = df_l10[['GAME_DATE', 'MATCHUP', columna_stat]].copy()
+            df_detalle['Superó Línea'] = df_detalle[columna_stat].apply(lambda x: "✅ Sí" if x > linea_prop else "❌ No")
+            df_detalle = df_detalle.rename(columns={'GAME_DATE': 'Fecha', 'MATCHUP': 'Enfrentamiento', columna_stat: stat_objetivo.capitalize()})
+            
+            st.dataframe(df_detalle, use_container_width=True)
